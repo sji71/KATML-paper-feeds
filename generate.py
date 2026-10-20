@@ -66,7 +66,18 @@ def get_json(base_url, params, *, token=None):
             return data
         except HTTPError as exc:
             if exc.code not in (429, 500, 502, 503, 504) or attempt == RETRIES:
-                raise FeedError(f"API request failed (HTTP {exc.code})") from None
+                source = "OpenReview" if base_url == OPENREVIEW_URL else "OpenAlex"
+                if source == "OpenReview" and exc.code == 403:
+                    try:
+                        error = json.load(exc)
+                    except (ValueError, OSError, TypeError, AttributeError):
+                        error = {}
+                    if isinstance(error, dict) and error.get("name") == "ChallengeRequiredError":
+                        raise FeedError(
+                            f"OpenReview requires challenge verification (HTTP 403) "
+                            f"for invitation {params.get('invitation')!r}"
+                        ) from None
+                raise FeedError(f"{source} API request failed (HTTP {exc.code})") from None
             retry_after = exc.headers.get("Retry-After", "")
             delay = min(60, int(retry_after)) if retry_after.isdecimal() else min(30, 2 ** attempt)
         except (URLError, TimeoutError, socket.timeout):
@@ -122,6 +133,8 @@ def openalex_items(terms, start_date, today, key):
     seen = {}
     fetched = 0
     untitled = set()
+    out_of_window = set()
+    first_day, last_day = parse_date(start_date), parse_date(today)
     for term in terms:
         cursor = "*"
         cursors = set()
@@ -132,7 +145,7 @@ def openalex_items(terms, start_date, today, key):
                 raise FeedError("OpenAlex repeated a page cursor")
             cursors.add(cursor)
             data = get_json(OPENALEX_URL, {
-                "search": term,
+                "search.title_and_abstract.exact": f'"{term}"',
                 "filter": f"from_publication_date:{start_date},to_publication_date:{today}",
                 "per_page": PAGE_SIZE,
                 "cursor": cursor,
@@ -156,6 +169,10 @@ def openalex_items(terms, start_date, today, key):
                 work_id = row.get("id")
                 if not isinstance(work_id, str) or not re.fullmatch(r"https://openalex\.org/W\d+", work_id):
                     raise FeedError("OpenAlex work ID is invalid")
+                published = parse_date(row.get("publication_date"))
+                if not first_day <= published <= last_day:
+                    out_of_window.add(work_id)
+                    continue
                 title = plain_text(row.get("title"))
                 if not title:
                     untitled.add(work_id)
@@ -165,7 +182,7 @@ def openalex_items(terms, start_date, today, key):
                     "title": title,
                     "link": work_id,
                     "description": abstract_from_index(row.get("abstract_inverted_index")),
-                    "date": parse_date(row.get("publication_date")),
+                    "date": published,
                 }
             if term_fetched == count:
                 break
@@ -175,7 +192,8 @@ def openalex_items(terms, start_date, today, key):
             cursor = next_cursor
         fetched += term_fetched
         print(f"OpenAlex query {term!r}: fetched {term_fetched}")
-    print(f"OpenAlex: fetched {fetched}, skipped untitled {len(untitled - seen.keys())}, unique/written {len(seen)}")
+    print(f"OpenAlex: fetched {fetched}, skipped untitled {len(untitled - seen.keys())}, "
+          f"out of window {len(out_of_window - seen.keys())}, unique/written {len(seen)}")
     return list(seen.values())
 
 
@@ -286,8 +304,10 @@ def main():
         raise FeedError("OPENALEX_API_KEY is required")
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=days)
-    alex = openalex_items(terms, cutoff.date().isoformat(), now.date().isoformat(), key)
+    alex_start = (now - timedelta(days=days - 1)).date().isoformat()
+    print(f"OpenAlex publication date window (UTC): {alex_start} to {now.date().isoformat()}")
     review = openreview_items(invitations, int(cutoff.timestamp() * 1000))
+    alex = openalex_items(terms, alex_start, now.date().isoformat(), key)
     outputs = {"openalex.xml": make_rss("OpenAlex", alex),
                "openreview.xml": make_rss("OpenReview", review)}
     args.output.mkdir(parents=True, exist_ok=True)

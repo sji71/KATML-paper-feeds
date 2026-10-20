@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from io import BytesIO
 import os
@@ -10,6 +11,12 @@ from urllib.error import HTTPError
 import xml.etree.ElementTree as ET
 
 import generate
+
+
+class FixedDateTime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 10, 20, 12, tzinfo=tz or timezone.utc)
 
 
 class GenerateTests(unittest.TestCase):
@@ -27,6 +34,7 @@ class GenerateTests(unittest.TestCase):
 
     def run_generator(self):
         with patch.dict(os.environ, {"OPENALEX_API_KEY": "test-key"}), \
+             patch("generate.datetime", FixedDateTime), \
              patch("generate.sys.argv", ["generate.py", "--config", str(self.config),
                                          "--output", str(self.output)]):
             generate.main()
@@ -34,6 +42,9 @@ class GenerateTests(unittest.TestCase):
     def test_pagination_fields_and_deduplication(self):
         def response(url, params, **kwargs):
             if url == generate.OPENALEX_URL:
+                self.assertEqual(params["search.title_and_abstract.exact"], '"sample"')
+                self.assertEqual(params["filter"],
+                                 "from_publication_date:2026-10-07,to_publication_date:2026-10-20")
                 base = {"id": "https://openalex.org/W1", "title": "A & B",
                         "publication_date": "2026-10-19",
                         "abstract_inverted_index": {"A": [0], "summary": [2]}}
@@ -137,6 +148,30 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual(ET.fromstring(rss).findtext("./channel/item/description"), abstract)
         with self.assertRaisesRegex(generate.FeedError, "positions are malformed"):
             generate.abstract_from_index({"first": [1], "another": [1]})
+
+    def test_openalex_drops_records_outside_publication_window(self):
+        def response(url, params, **kwargs):
+            return {"meta": {"count": 2, "next_cursor": None}, "results": [
+                {"id": "https://openalex.org/W1", "title": "Old paper",
+                 "publication_date": "2026-10-15", "abstract_inverted_index": None},
+                {"id": "https://openalex.org/W2", "title": "Recent paper",
+                 "publication_date": "2026-10-19", "abstract_inverted_index": None},
+            ]}
+
+        with patch("generate.get_json", side_effect=response):
+            items = generate.openalex_items(["active learning"], "2026-10-16",
+                                            "2026-10-20", "test-key")
+        self.assertEqual([item["guid"] for item in items], ["https://openalex.org/W2"])
+
+    def test_openreview_challenge_names_source_and_invitation(self):
+        error = HTTPError(generate.OPENREVIEW_URL, 403, "Forbidden", {}, BytesIO(
+            b'{"name":"ChallengeRequiredError","status":403}'))
+        invitation = "TMLR/-/Submission"
+        with patch("generate.urlopen", side_effect=error) as opener:
+            with self.assertRaisesRegex(generate.FeedError,
+                                        "OpenReview requires challenge verification.*TMLR"):
+                generate.get_json(generate.OPENREVIEW_URL, {"invitation": invitation})
+        opener.assert_called_once()
 
     def test_429_is_retried_without_key_in_url(self):
         error = HTTPError("https://api.openalex.org/works", 429, "rate limit", {}, None)

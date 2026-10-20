@@ -20,7 +20,7 @@
 
 修改 `cron` 后提交到默认分支即可。例子：`50 18 * * 1,4` 是每周一和周四 UTC 18:50；`50 18 * * 1` 是每周一同一时间。`workflow_dispatch` 始终允许在 Actions 页面手动运行。GitHub 定时任务按 [POSIX cron](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax) 解释，可能延迟；调整频率时也检查 OpenAlex API 用量。`lookback_days` 建议大于两次计划运行之间的最长间隔，留出漏跑的余量。
 
-每次运行都**不是全平台扫描**，也不只抓运行当天。当前 `lookback_days = 5` 时，OpenAlex 对每个检索词查询从「UTC 今天减 5 天」至「UTC 今天」的**发表日期**（按日期包含两端）；OpenReview 仅查配置的 invitation，按 note 的 `tcdate` 查询过去整整 5×24 小时。程序遍历这两个查询范围内的全部分页结果，在每个平台内部按稳定 ID 去重后重新生成 RSS。改小 `lookback_days` 会缩小补读机会；改大则可能增加 API 用量、RSS 大小，超过连接器 5 MB 上限时会失败而不部署。
+每次运行都**不是全平台扫描**，也不只抓运行当天。当前 `lookback_days = 5` 时，OpenAlex 查询 UTC 今天及之前四个日期的**发表日期**，并只检索七个短语在**标题或摘要**中的精确匹配；代码也会排除 API 意外返回的窗口外记录。OpenReview 仅查配置的 invitation，按 note 的 `tcdate` 查询过去整整 5×24 小时。程序遍历查询范围内的全部分页结果，在每个平台内部按稳定 ID 去重后重新生成 RSS。改小 `lookback_days` 会缩小补读机会；改大则可能增加 API 用量、RSS 大小，超过连接器 5 MB 上限时会失败而不部署。OpenAlex 的宽泛 `search` 会匹配全文和关键词；本仓库采用[官方的 `search.title_and_abstract.exact`](https://help.openalex.org/api/searching/) 收窄范围。
 
 ## RSS 地址
 
@@ -54,7 +54,7 @@
 
 OpenAlex 摘要倒排索引按位置排序还原；若位置有缺号，只能保留 API 实际给出的词，无法推断缺失文字。分页数量不完整仍会让任务失败。
 
-外部 API 拒绝访问也会让生成任务失败。2026-10-20 从本地匿名读取 OpenReview `/notes` 时返回 `403 ChallengeRequiredError`；邀请 ID 已从公开群组元数据核对，但这不等于 GitHub Actions 已能抓取 note。必须以手动运行的结果确认。失败时不会更新 Pages；若此前从未成功部署，两个 RSS URL 仍可能是 404，Power Automate 的 RSS Get 会失败。
+外部 API 拒绝访问也会让生成任务失败。2026-10-20 从本地匿名读取 OpenReview `/notes` 时返回 `403 ChallengeRequiredError`；GitHub Actions 也出现 403。程序会在日志中指出被拒绝的 invitation，并先检查 OpenReview，避免在其持续拒绝访问时反复消耗 OpenAlex 配额。这是 OpenReview 要求验证的响应，改检索词或 OpenAlex API key 无法解决。可通过 [OpenReview 联系表单](https://openreview.net/contact)询问如何让 GitHub Actions 定时读取公开 submission notes；在获得官方支持的访问方式前，不会发布不完整的 OpenReview feed。失败时不会更新 Pages；若此前从未成功部署，两个 RSS URL 仍可能是 404，Power Automate 的 RSS Get 会失败。
 
 [GitHub 官方说明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows)：公开仓库 **60 天无仓库活动**会自动停用定时工作流。最省事的可验证做法是每月查看一次 **Actions → Publish paper feeds** 的最近运行日期和工作流启用状态，并在 60 天内对仓库做一次真实的配置/文档提交；仅有定时运行和 Pages 部署不应被当成维持仓库活动的保证。若已停用，在该工作流页面点 **Enable workflow**，然后手动 **Run workflow**，确认两个 XML 更新。需要完全无人值守时应另用仓库外监控/触发器；本仓库不加自提交保活工作流。
 
