@@ -57,7 +57,9 @@ class GenerateTests(unittest.TestCase):
                 "title": {"value": "<b>Title</b>"},
                 "abstract": {"value": "<p>Plain &amp; clear</p>"}},
                 "odate": 1792368000000}
-            self.assertIn("mintcdate", params)
+            self.assertEqual(params["term"], "sample")
+            self.assertEqual(params["type"], "exact")
+            self.assertEqual(params["content"], "all")
             self.assertEqual(params["count"], "true")
             if params["offset"] == 0:
                 return {"count": 2, "notes": [note]}
@@ -172,6 +174,26 @@ class GenerateTests(unittest.TestCase):
                                         "OpenReview requires challenge verification.*TMLR"):
                 generate.get_json(generate.OPENREVIEW_URL, {"invitation": invitation})
         opener.assert_called_once()
+
+    def test_openreview_search_filters_public_date_and_deduplicates(self):
+        recent = {"id": "abcdefgh12", "content": {
+            "title": {"value": "Recent paper"},
+            "abstract": {"value": "Active learning and data selection"}},
+            "tcdate": 1789000000000, "odate": 1792235047500}
+        old = dict(recent, id="abcdefgh13", odate=1791000000000)
+
+        def response(url, params, **kwargs):
+            self.assertEqual(url, generate.OPENREVIEW_URL)
+            self.assertEqual(params["type"], "exact")
+            return {"count": 2, "notes": [recent, old]}
+
+        with patch("generate.get_json", side_effect=response) as getter:
+            items = generate.openreview_items(["TMLR/-/Submission"],
+                                              ["active learning", "data selection"],
+                                              1792049700000, 1792470000000)
+        self.assertEqual(getter.call_count, 2)
+        self.assertEqual([item["guid"] for item in items],
+                         ["https://openreview.net/forum?id=abcdefgh12"])
 
     def test_429_is_retried_without_key_in_url(self):
         error = HTTPError("https://api.openalex.org/works", 429, "rate limit", {}, None)

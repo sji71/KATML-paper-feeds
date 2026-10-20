@@ -20,7 +20,7 @@
 
 修改 `cron` 后提交到默认分支即可。例子：`50 18 * * 1,4` 是每周一和周四 UTC 18:50；`50 18 * * 1` 是每周一同一时间。`workflow_dispatch` 始终允许在 Actions 页面手动运行。GitHub 定时任务按 [POSIX cron](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax) 解释，可能延迟；调整频率时也检查 OpenAlex API 用量。`lookback_days` 建议大于两次计划运行之间的最长间隔，留出漏跑的余量。
 
-每次运行都**不是全平台扫描**，也不只抓运行当天。当前 `lookback_days = 5` 时，OpenAlex 查询 UTC 今天及之前四个日期的**发表日期**，并只检索七个短语在**标题或摘要**中的精确匹配；代码也会排除 API 意外返回的窗口外记录。OpenReview 仅查配置的 invitation，按 note 的 `tcdate` 查询过去整整 5×24 小时。程序遍历查询范围内的全部分页结果，在每个平台内部按稳定 ID 去重后重新生成 RSS。改小 `lookback_days` 会缩小补读机会；改大则可能增加 API 用量、RSS 大小，超过连接器 5 MB 上限时会失败而不部署。OpenAlex 的宽泛 `search` 会匹配全文和关键词；本仓库采用[官方的 `search.title_and_abstract.exact`](https://help.openalex.org/api/searching/) 收窄范围。
+每次运行都**不是全平台扫描**，也不只抓运行当天。当前 `lookback_days = 5` 时，OpenAlex 查询 UTC 今天及之前四个日期的**发表日期**，并只检索七个短语在**标题或摘要**中的精确匹配；代码也会排除 API 意外返回的窗口外记录。OpenReview 用[官方 `/notes/search` 接口](https://docs.openreview.net/reference/api-v2/openapi-definition)按配置的 invitation 和同样七个短语检索公开 note，完整翻页后在本地保留过去 5×24 小时内公开的记录（优先 `odate`，否则 `tcdate` 或 `cdate`）。两个来源都按平台 ID 去重。改小 `lookback_days` 会缩小补读机会；改大则可能增加 API 用量、RSS 大小，超过连接器 5 MB 上限时会失败而不部署。OpenAlex 的宽泛 `search` 会匹配全文和关键词；本仓库采用[官方的 `search.title_and_abstract.exact`](https://help.openalex.org/api/searching/) 收窄范围。
 
 ## RSS 地址
 
@@ -48,13 +48,13 @@
 
 ## 覆盖边界与运行维护
 
-每次运行都会重新生成最近 `lookback_days` 的 feed，因此 Power Automate 漏跑一次后，仍可在论文留在窗口内时补读；SharePoint 以稳定 ID 去重。OpenAlex 这里按 **publication_date** 查询，迟于回看窗口才补录到 OpenAlex 的旧发表论文可能漏掉。[OpenAlex 官方说明](https://help.openalex.org/access/sync/)按数据库 `from_created_date` / `from_updated_date` 增量筛选是付费功能，免费方案不保证零遗漏。OpenReview 按 note 的真实创建时间 `tcdate` 筛选；创建较早、后来才公开或修改的 note，以及旧 API 会议，可能漏掉。GitHub 定时任务也可能延迟或偶尔被丢弃；可在 Actions 运行历史中检查。[RSS 连接器文档](https://learn.microsoft.com/en-us/connectors/rss/)列出 5 MB 内容上限，超出时生成器会失败而不部署。
+每次运行都会重新生成最近 `lookback_days` 的 feed，因此 Power Automate 漏跑一次后，仍可在论文留在窗口内时补读；SharePoint 以稳定 ID 去重。OpenAlex 这里按 **publication_date** 查询，迟于回看窗口才补录到 OpenAlex 的旧发表论文可能漏掉。[OpenAlex 官方说明](https://help.openalex.org/access/sync/)按数据库 `from_created_date` / `from_updated_date` 增量筛选是付费功能，免费方案不保证零遗漏。OpenReview 搜索接口没有日期筛选，程序会完整读取七个短语的匹配结果，再按公开日期在本地筛选；旧 API 会议及后来修改但公开日期已过窗口的 note 可能漏掉。GitHub 定时任务也可能延迟或偶尔被丢弃；可在 Actions 运行历史中检查。[RSS 连接器文档](https://learn.microsoft.com/en-us/connectors/rss/)列出 5 MB 内容上限，超出时生成器会失败而不部署。
 
 [OpenAlex 的 `title` 可以为 null](https://help.openalex.org/data/works/attributes/)；这类记录缺少 RSS 必需的标题，会按 ID 计数并跳过。若窗口内因此没有可写的论文，生成任务仍会失败，不部署空 feed。
 
 OpenAlex 摘要倒排索引按位置排序还原；若位置有缺号，只能保留 API 实际给出的词，无法推断缺失文字。分页数量不完整仍会让任务失败。
 
-外部 API 拒绝访问也会让生成任务失败。2026-10-20 从本地匿名读取 OpenReview `/notes` 时返回 `403 ChallengeRequiredError`；GitHub Actions 也出现 403。程序会在日志中指出被拒绝的 invitation，并先检查 OpenReview，避免在其持续拒绝访问时反复消耗 OpenAlex 配额。这是 OpenReview 要求验证的响应，改检索词或 OpenAlex API key 无法解决。可通过 [OpenReview 联系表单](https://openreview.net/contact)询问如何让 GitHub Actions 定时读取公开 submission notes；在获得官方支持的访问方式前，不会发布不完整的 OpenReview feed。失败时不会更新 Pages；若此前从未成功部署，两个 RSS URL 仍可能是 404，Power Automate 的 RSS Get 会失败。
+OpenReview 的 `/notes` 在 2026-10-20 返回 `403 ChallengeRequiredError`，因此程序改用公开可读的 `/notes/search`。若外部 API 再次拒绝访问，任务会失败且不会部署不完整的 feed；已有成功部署时 Pages 保留上次版本。
 
 [GitHub 官方说明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows)：公开仓库 **60 天无仓库活动**会自动停用定时工作流。最省事的可验证做法是每月查看一次 **Actions → Publish paper feeds** 的最近运行日期和工作流启用状态，并在 60 天内对仓库做一次真实的配置/文档提交；仅有定时运行和 Pages 部署不应被当成维持仓库活动的保证。若已停用，在该工作流页面点 **Enable workflow**，然后手动 **Run workflow**，确认两个 XML 更新。需要完全无人值守时应另用仓库外监控/触发器；本仓库不加自提交保活工作流。
 

@@ -19,7 +19,7 @@ from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
 OPENALEX_URL = "https://api.openalex.org/works"
-OPENREVIEW_URL = "https://api2.openreview.net/notes"
+OPENREVIEW_URL = "https://api2.openreview.net/notes/search"
 PAGE_SIZE = 100
 RETRIES = 4
 
@@ -204,52 +204,58 @@ def field_value(content, name):
     return value
 
 
-def openreview_items(invitations, cutoff_ms):
+def openreview_items(invitations, terms, cutoff_ms, now_ms):
     seen = {}
     fetched = 0
     for invitation in invitations:
-        offset = 0
-        expected = None
-        while True:
-            data = get_json(OPENREVIEW_URL, {
-                "invitation": invitation,
-                "mintcdate": cutoff_ms,
-                "limit": PAGE_SIZE,
-                "offset": offset,
-                "count": "true",
-                "sort": "tcdate:asc",
-            })
-            rows, count = data.get("notes"), data.get("count")
-            if not isinstance(rows, list) or not isinstance(count, int) or count < 0:
-                raise FeedError("OpenReview page is malformed")
-            if expected is not None and count != expected:
-                raise FeedError("OpenReview page count changed")
-            expected = count
-            if len(rows) > PAGE_SIZE or (not rows and offset < count):
-                raise FeedError("OpenReview pagination ended early")
-            offset += len(rows)
-            if offset > count:
-                raise FeedError("OpenReview returned more records than its count")
-            for row in rows:
-                if not isinstance(row, dict) or not isinstance(row.get("content"), dict):
-                    raise FeedError("OpenReview note is malformed")
-                note_id = row.get("id")
-                if not isinstance(note_id, str) or not re.fullmatch(r"[A-Za-z0-9]{10}", note_id):
-                    raise FeedError("OpenReview note ID is invalid")
-                content = row["content"]
-                # A public submission's online date is preferable to its later acceptance date.
-                date_ms = row.get("odate") or row.get("cdate") or row.get("tcdate")
-                seen[note_id] = {
-                    "guid": "https://openreview.net/forum?id=" + note_id,
-                    "title": required_text(field_value(content, "title"), "OpenReview title"),
-                    "link": "https://openreview.net/forum?id=" + note_id,
-                    "description": plain_text(field_value(content, "abstract")),
-                    "date": parse_ms(date_ms),
-                }
-            if offset == count:
-                break
-        fetched += offset
-        print(f"OpenReview invitation {invitation!r}: fetched {offset}")
+        invitation_fetched = 0
+        for term in terms:
+            offset = 0
+            expected = None
+            while True:
+                data = get_json(OPENREVIEW_URL, {
+                    "invitation": invitation,
+                    "term": term,
+                    "type": "exact",
+                    "content": "all",
+                    "limit": PAGE_SIZE,
+                    "offset": offset,
+                    "count": "true",
+                })
+                rows, count = data.get("notes"), data.get("count")
+                if not isinstance(rows, list) or not isinstance(count, int) or count < 0:
+                    raise FeedError("OpenReview page is malformed")
+                if expected is not None and count != expected:
+                    raise FeedError("OpenReview page count changed")
+                expected = count
+                if len(rows) > PAGE_SIZE or (not rows and offset < count):
+                    raise FeedError("OpenReview pagination ended early")
+                offset += len(rows)
+                if offset > count:
+                    raise FeedError("OpenReview returned more records than its count")
+                for row in rows:
+                    if not isinstance(row, dict) or not isinstance(row.get("content"), dict):
+                        raise FeedError("OpenReview note is malformed")
+                    note_id = row.get("id")
+                    if not isinstance(note_id, str) or not re.fullmatch(r"[A-Za-z0-9]{10}", note_id):
+                        raise FeedError("OpenReview note ID is invalid")
+                    content = row["content"]
+                    date_ms = row.get("odate") or row.get("tcdate") or row.get("cdate")
+                    date = parse_ms(date_ms)
+                    if not cutoff_ms <= date_ms <= now_ms:
+                        continue
+                    seen[note_id] = {
+                        "guid": "https://openreview.net/forum?id=" + note_id,
+                        "title": required_text(field_value(content, "title"), "OpenReview title"),
+                        "link": "https://openreview.net/forum?id=" + note_id,
+                        "description": plain_text(field_value(content, "abstract")),
+                        "date": date,
+                    }
+                if offset == count:
+                    break
+            invitation_fetched += offset
+        fetched += invitation_fetched
+        print(f"OpenReview invitation {invitation!r}: fetched {invitation_fetched}")
     print(f"OpenReview: fetched {fetched}, unique/written {len(seen)}")
     return list(seen.values())
 
@@ -306,7 +312,8 @@ def main():
     cutoff = now - timedelta(days=days)
     alex_start = (now - timedelta(days=days - 1)).date().isoformat()
     print(f"OpenAlex publication date window (UTC): {alex_start} to {now.date().isoformat()}")
-    review = openreview_items(invitations, int(cutoff.timestamp() * 1000))
+    review = openreview_items(invitations, terms, int(cutoff.timestamp() * 1000),
+                              int(now.timestamp() * 1000))
     alex = openalex_items(terms, alex_start, now.date().isoformat(), key)
     outputs = {"openalex.xml": make_rss("OpenAlex", alex),
                "openreview.xml": make_rss("OpenReview", review)}
