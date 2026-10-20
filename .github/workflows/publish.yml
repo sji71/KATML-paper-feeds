@@ -3,7 +3,7 @@ name: Publish paper feeds
 on:
   schedule:
     # Change this cron expression to adjust run frequency (UTC).
-    # Examples: '37 18 * * *' daily; '37 18 * * 1,4' Monday/Thursday.
+    # Examples: '50 18 * * *' daily; '50 18 * * 1,4' Monday/Thursday.
     - cron: '50 18 * * *'
   workflow_dispatch:
 
@@ -30,6 +30,7 @@ jobs:
         env:
           OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
         run: python3 generate.py
+      # A failed fetch skips the upload and deploy steps. Any prior Pages feed stays live.
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

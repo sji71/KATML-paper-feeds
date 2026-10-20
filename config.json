@@ -1,9 +1,20 @@
 {
   "lookback_days": 5,
   "openalex": {
-    "search_terms": ["graph neural network", "causal machine learning"]
+    "search_terms": [
+      "active learning",
+      "sample selection",
+      "data selection",
+      "query strategy",
+      "annotation budget",
+      "distribution shift",
+      "selection bias"
+    ]
   },
   "openreview": {
-    "invitation_ids": ["REPLACE_WITH_PUBLIC_SUBMISSION_INVITATION_ID"]
+    "invitation_ids": [
+      "TMLR/-/Submission",
+      "ICLR.cc/2027/Conference/-/Submission"
+    ]
   }
 }
