@@ -1,0 +1,9 @@
+{
+  "lookback_days": 5,
+  "openalex": {
+    "search_terms": ["graph neural network", "causal machine learning"]
+  },
+  "openreview": {
+    "invitation_ids": ["REPLACE_WITH_PUBLIC_SUBMISSION_INVITATION_ID"]
+  }
+}

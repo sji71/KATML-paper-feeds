@@ -1,0 +1,38 @@
+name: Publish paper feeds
+
+on:
+  schedule:
+    # Change this cron expression to adjust run frequency (UTC).
+    # Examples: '37 18 * * *' daily; '37 18 * * 1,4' Monday/Thursday.
+    - cron: '50 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: paper-feeds-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Test generator
+        run: python3 -m unittest -q
+      - name: Generate and validate RSS
+        env:
+          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+        run: python3 generate.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
