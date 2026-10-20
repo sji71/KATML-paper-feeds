@@ -52,6 +52,8 @@
 
 [OpenAlex 的 `title` 可以为 null](https://help.openalex.org/data/works/attributes/)；这类记录缺少 RSS 必需的标题，会按 ID 计数并跳过。若窗口内因此没有可写的论文，生成任务仍会失败，不部署空 feed。
 
+OpenAlex 摘要倒排索引按位置排序还原；若位置有缺号，只能保留 API 实际给出的词，无法推断缺失文字。分页数量不完整仍会让任务失败。
+
 外部 API 拒绝访问也会让生成任务失败。2026-10-20 从本地匿名读取 OpenReview `/notes` 时返回 `403 ChallengeRequiredError`；邀请 ID 已从公开群组元数据核对，但这不等于 GitHub Actions 已能抓取 note。必须以手动运行的结果确认。失败时不会更新 Pages；若此前从未成功部署，两个 RSS URL 仍可能是 404，Power Automate 的 RSS Get 会失败。
 
 [GitHub 官方说明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows)：公开仓库 **60 天无仓库活动**会自动停用定时工作流。最省事的可验证做法是每月查看一次 **Actions → Publish paper feeds** 的最近运行日期和工作流启用状态，并在 60 天内对仓库做一次真实的配置/文档提交；仅有定时运行和 Pages 部署不应被当成维持仓库活动的保证。若已停用，在该工作流页面点 **Enable workflow**，然后手动 **Run workflow**，确认两个 XML 更新。需要完全无人值守时应另用仓库外监控/触发器；本仓库不加自提交保活工作流。

@@ -36,7 +36,7 @@ class GenerateTests(unittest.TestCase):
             if url == generate.OPENALEX_URL:
                 base = {"id": "https://openalex.org/W1", "title": "A & B",
                         "publication_date": "2026-10-19",
-                        "abstract_inverted_index": {"A": [0], "summary": [1]}}
+                        "abstract_inverted_index": {"A": [0], "summary": [2]}}
                 other = dict(base, id="https://openalex.org/W2", title="Second")
                 if params["cursor"] == "*":
                     return {"meta": {"count": 3, "next_cursor": "next"},
@@ -125,6 +125,18 @@ class GenerateTests(unittest.TestCase):
             "link": "https://example.org/1", "description": "Text",
             "date": generate.parse_date("2026-10-19") }])
         self.assertEqual(ET.fromstring(data).findtext("./channel/item/title"), "AB")
+
+    def test_sparse_openalex_abstract_uses_available_words_in_position_order(self):
+        abstract = generate.abstract_from_index({"last": [5], "first": [1], "middle": [3]})
+        self.assertEqual(abstract, "first middle last")
+        rss = generate.make_rss("OpenAlex", [{
+            "guid": "https://openalex.org/W1", "title": "Valid paper",
+            "link": "https://openalex.org/W1", "description": abstract,
+            "date": generate.parse_date("2026-10-19"),
+        }])
+        self.assertEqual(ET.fromstring(rss).findtext("./channel/item/description"), abstract)
+        with self.assertRaisesRegex(generate.FeedError, "positions are malformed"):
+            generate.abstract_from_index({"first": [1], "another": [1]})
 
     def test_429_is_retried_without_key_in_url(self):
         error = HTTPError("https://api.openalex.org/works", 429, "rate limit", {}, None)

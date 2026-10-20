@@ -90,9 +90,7 @@ def abstract_from_index(index):
             if not isinstance(position, int) or position < 0 or position in positions:
                 raise FeedError("OpenAlex abstract positions are malformed")
             positions[position] = word
-    if positions and set(positions) != set(range(len(positions))):
-        raise FeedError("OpenAlex abstract positions are incomplete")
-    return plain_text(" ".join(positions[i] for i in range(len(positions))))
+    return plain_text(" ".join(positions[i] for i in sorted(positions)))
 
 
 def parse_date(value):
