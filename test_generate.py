@@ -80,6 +80,45 @@ class GenerateTests(unittest.TestCase):
                 self.run_generator()
         self.assertFalse(self.output.exists())
 
+    def test_untitled_openalex_work_is_skipped_without_losing_other_items(self):
+        def response(url, params, **kwargs):
+            if url == generate.OPENALEX_URL:
+                return {"meta": {"count": 2, "next_cursor": None}, "results": [
+                    {"id": "https://openalex.org/W1", "title": None,
+                     "publication_date": "2026-10-19", "abstract_inverted_index": None},
+                    {"id": "https://openalex.org/W2", "title": "Valid paper",
+                     "publication_date": "2026-10-19", "abstract_inverted_index": None},
+                ]}
+            return {"count": 1, "notes": [{
+                "id": "abcdefgh12", "content": {"title": {"value": "OpenReview paper"}},
+                "odate": 1792368000000,
+            }]}
+
+        with patch("generate.get_json", side_effect=response):
+            self.run_generator()
+        items = ET.parse(self.output / "openalex.xml").findall("./channel/item")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].findtext("guid"), "https://openalex.org/W2")
+        self.assertEqual(items[0].findtext("title"), "Valid paper")
+        self.assertEqual(len(ET.parse(self.output / "openreview.xml").findall("./channel/item")), 1)
+
+    def test_all_untitled_openalex_works_block_both_outputs(self):
+        def response(url, params, **kwargs):
+            if url == generate.OPENALEX_URL:
+                return {"meta": {"count": 1, "next_cursor": None}, "results": [{
+                    "id": "https://openalex.org/W1", "title": None,
+                    "publication_date": "2026-10-19", "abstract_inverted_index": None,
+                }]}
+            return {"count": 1, "notes": [{
+                "id": "abcdefgh12", "content": {"title": {"value": "OpenReview paper"}},
+                "odate": 1792368000000,
+            }]}
+
+        with patch("generate.get_json", side_effect=response):
+            with self.assertRaisesRegex(generate.FeedError, "refusing to publish an empty feed"):
+                self.run_generator()
+        self.assertFalse(self.output.exists())
+
     def test_invalid_xml_character_is_removed(self):
         data = generate.make_rss("Test", [{
             "guid": "https://example.org/1", "title": generate.plain_text("A\x01B"),

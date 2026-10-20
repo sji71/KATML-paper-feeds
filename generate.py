@@ -123,6 +123,7 @@ def required_text(value, label):
 def openalex_items(terms, start_date, today, key):
     seen = {}
     fetched = 0
+    untitled = set()
     for term in terms:
         cursor = "*"
         cursors = set()
@@ -157,9 +158,13 @@ def openalex_items(terms, start_date, today, key):
                 work_id = row.get("id")
                 if not isinstance(work_id, str) or not re.fullmatch(r"https://openalex\.org/W\d+", work_id):
                     raise FeedError("OpenAlex work ID is invalid")
+                title = plain_text(row.get("title"))
+                if not title:
+                    untitled.add(work_id)
+                    continue
                 seen[work_id] = {
                     "guid": work_id,
-                    "title": required_text(row.get("title"), "OpenAlex title"),
+                    "title": title,
                     "link": work_id,
                     "description": abstract_from_index(row.get("abstract_inverted_index")),
                     "date": parse_date(row.get("publication_date")),
@@ -172,7 +177,7 @@ def openalex_items(terms, start_date, today, key):
             cursor = next_cursor
         fetched += term_fetched
         print(f"OpenAlex query {term!r}: fetched {term_fetched}")
-    print(f"OpenAlex: fetched {fetched}, unique/written {len(seen)}")
+    print(f"OpenAlex: fetched {fetched}, skipped untitled {len(untitled - seen.keys())}, unique/written {len(seen)}")
     return list(seen.values())
 
 

@@ -14,7 +14,11 @@
   "openreview": {
     "invitation_ids": [
       "TMLR/-/Submission",
-      "ICLR.cc/2027/Conference/-/Submission"
+      "ICLR.cc/2027/Conference/-/Submission",
+      "aistats.org/AISTATS/2027/Conference/-/Submission",
+      "auai.org/UAI/2026/Conference/-/Submission",
+      "lifelong-ml.cc/CoLLAs/2026/Conference/-/Submission",
+      "robot-learning.org/CoRL/2026/Conference/-/Submission"
     ]
   }
 }
